@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: transparent;
+    color: #FAFAFA;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body { padding: 4px 2px; }
+  .label { font-size: 14px; font-weight: 600; margin: 10px 4px 6px; color: #E5E7EB; }
+  .row {
+    display: flex; align-items: stretch; gap: 6px;
+    background: #1E2530; border-radius: 14px; padding: 8px 10px;
+    box-shadow: inset 0 0 0 1px #2A3342;
+  }
+  .group {
+    position: relative; flex: 1; min-width: 0;
+    background: #0B1018; border-radius: 10px; overflow: hidden;
+  }
+  .group.wide { flex: 1.6; }
+  .wheel {
+    height: 144px;
+    overflow-y: scroll;
+    scroll-snap-type: y mandatory;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .wheel::-webkit-scrollbar { display: none; }
+  .wheel.locked { opacity: 0.32; pointer-events: none; }
+  .pad { height: 54px; }
+  .wi {
+    height: 36px; line-height: 36px;
+    scroll-snap-align: center;
+    text-align: center; font-variant-numeric: tabular-nums;
+    font-size: 20px; color: #6B7280;
+    transition: color .12s, font-size .12s, font-weight .12s;
+  }
+  .wi.near { color: #9CA3AF; font-size: 22px; }
+  .wi.sel { color: #FFFFFF; font-size: 28px; font-weight: 700; }
+  .band {
+    position: absolute; left: 0; right: 0; top: 54px; height: 36px;
+    border-top: 1px solid #374151; border-bottom: 1px solid #374151;
+    background: rgba(34,197,94,0.06);
+    pointer-events: none;
+  }
+  .fade-top, .fade-bot {
+    position: absolute; left: 0; right: 0; height: 54px; pointer-events: none;
+  }
+  .fade-top { top: 0; background: linear-gradient(180deg, #0B1018 0%, rgba(11,16,24,0) 100%); }
+  .fade-bot { bottom: 0; background: linear-gradient(0deg, #0B1018 0%, rgba(11,16,24,0) 100%); }
+  .dot {
+    flex: 0 0 auto; align-self: center;
+    font-size: 30px; font-weight: 800; color: #FFFFFF;
+    padding: 0 2px; transform: translateY(28px);
+  }
+  .unit {
+    flex: 0 0 auto; align-self: center;
+    font-size: 14px; color: #9CA3AF; padding: 0 6px;
+    min-width: 78px; text-align: center;
+  }
+  .lock-tag {
+    display: none; font-size: 12px; color: #FBBF24;
+    margin: 4px 4px 0;
+  }
+  .lock-tag.show { display: block; }
+</style>
+</head>
+<body>
+
+<div class="label">體重 kg</div>
+<div class="row">
+  <div class="group wide">
+    <div class="wheel" id="w-int"></div>
+    <div class="band"></div>
+    <div class="fade-top"></div><div class="fade-bot"></div>
+  </div>
+  <div class="dot">.</div>
+  <div class="group">
+    <div class="wheel" id="w-dec"></div>
+    <div class="band"></div>
+    <div class="fade-top"></div><div class="fade-bot"></div>
+  </div>
+  <div class="unit">kg</div>
+</div>
+<div class="lock-tag" id="w-lock">已達上限，小數鎖定為 0</div>
+
+<div class="label">劑量 mcg/kg/min</div>
+<div class="row">
+  <div class="group wide">
+    <div class="wheel" id="d-int"></div>
+    <div class="band"></div>
+    <div class="fade-top"></div><div class="fade-bot"></div>
+  </div>
+  <div class="dot">.</div>
+  <div class="group">
+    <div class="wheel" id="d-dec"></div>
+    <div class="band"></div>
+    <div class="fade-top"></div><div class="fade-bot"></div>
+  </div>
+  <div class="unit">mcg/kg/min</div>
+</div>
+<div class="lock-tag" id="d-lock">已達上限，小數鎖定為 0</div>
+
+<script>
+// =========================
+// Streamlit component bridge (manual postMessage protocol)
+// =========================
+function sendToStreamlit(type, data) {
+  const out = Object.assign({ isStreamlitMessage: true, type: type }, data);
+  window.parent.postMessage(out, "*");
+}
+function setReady()        { sendToStreamlit("streamlit:componentReady", { apiVersion: 1 }); }
+function setHeight(h)      { sendToStreamlit("streamlit:setFrameHeight", { height: h }); }
+function setValue(value)   { sendToStreamlit("streamlit:setComponentValue", { value: value, dataType: "json" }); }
+
+// =========================
+// Wheel implementation
+// =========================
+const ITEM_H = 36;
+const W_MIN = 10, W_MAX = 200;
+const D_MIN = 0,  D_MAX = 50;
+
+const state = { w_int: 60, w_dec: 0, d_int: 5, d_dec: 0 };
+let currentVersion = null;
+let built = false;
+
+function buildWheel(id, min, max, init) {
+  const el = document.getElementById(id);
+  let html = '<div class="pad"></div>';
+  for (let v = min; v <= max; v++) {
+    html += '<div class="wi" data-v="' + v + '">' + v + '</div>';
+  }
+  html += '<div class="pad"></div>';
+  el.innerHTML = html;
+  scrollTo(el, init - min);
+  return el;
+}
+
+function scrollTo(el, idx) {
+  requestAnimationFrame(() => {
+    el.scrollTop = idx * ITEM_H;
+    paint(el);
+  });
+}
+
+function paint(el) {
+  const center = el.scrollTop + el.clientHeight / 2;
+  const items = el.querySelectorAll('.wi');
+  let bestIdx = 0, bestDist = Infinity;
+  items.forEach((it, i) => {
+    const c = it.offsetTop + ITEM_H / 2;
+    const d = Math.abs(c - center);
+    if (d < bestDist) { bestDist = d; bestIdx = i; }
+  });
+  items.forEach((it, i) => {
+    it.classList.remove('sel', 'near');
+    if (i === bestIdx) it.classList.add('sel');
+    else if (Math.abs(i - bestIdx) === 1) it.classList.add('near');
+  });
+  return items[bestIdx] ? parseInt(items[bestIdx].dataset.v) : null;
+}
+
+function attachScroll(el, onChange) {
+  let t;
+  el.addEventListener('scroll', () => {
+    paint(el);
+    clearTimeout(t);
+    t = setTimeout(() => {
+      const v = paint(el);
+      if (v !== null) onChange(v);
+    }, 110);
+  });
+}
+
+function applyLock() {
+  const wDec = document.getElementById('w-dec');
+  const dDec = document.getElementById('d-dec');
+  const wTag = document.getElementById('w-lock');
+  const dTag = document.getElementById('d-lock');
+
+  if (state.w_int >= W_MAX) {
+    state.w_dec = 0;
+    wDec.scrollTop = 0; paint(wDec);
+    wDec.classList.add('locked'); wTag.classList.add('show');
+  } else { wDec.classList.remove('locked'); wTag.classList.remove('show'); }
+
+  if (state.d_int >= D_MAX) {
+    state.d_dec = 0;
+    dDec.scrollTop = 0; paint(dDec);
+    dDec.classList.add('locked'); dTag.classList.add('show');
+  } else { dDec.classList.remove('locked'); dTag.classList.remove('show'); }
+}
+
+function emit() {
+  applyLock();
+  const value = {
+    weight: Math.round((state.w_int + state.w_dec / 10) * 10) / 10,
+    dose:   Math.round((state.d_int + state.d_dec / 10) * 10) / 10,
+    v: currentVersion
+  };
+  setValue(value);
+}
+
+function buildAll(wInit, dInit) {
+  state.w_int = Math.floor(wInit);
+  state.w_dec = Math.round((wInit - state.w_int) * 10);
+  state.d_int = Math.floor(dInit);
+  state.d_dec = Math.round((dInit - state.d_int) * 10);
+
+  const wInt = buildWheel('w-int', W_MIN, W_MAX, state.w_int);
+  const wDec = buildWheel('w-dec', 0, 9, state.w_dec);
+  const dInt = buildWheel('d-int', D_MIN, D_MAX, state.d_int);
+  const dDec = buildWheel('d-dec', 0, 9, state.d_dec);
+
+  if (!built) {
+    attachScroll(wInt, v => { state.w_int = v; emit(); });
+    attachScroll(wDec, v => { state.w_dec = v; emit(); });
+    attachScroll(dInt, v => { state.d_int = v; emit(); });
+    attachScroll(dDec, v => { state.d_dec = v; emit(); });
+    built = true;
+  }
+
+  setTimeout(() => { applyLock(); emit(); setHeight(document.body.scrollHeight + 16); }, 80);
+}
+
+// =========================
+// Listen for render events from Streamlit
+// =========================
+window.addEventListener("message", (event) => {
+  if (!event.data || event.data.type !== "streamlit:render") return;
+  const args = event.data.args || {};
+  const v = args.version;
+  if (v !== currentVersion) {
+    currentVersion = v;
+    const wInit = (typeof args.weight_init === "number") ? args.weight_init : 60.0;
+    const dInit = (typeof args.dose_init   === "number") ? args.dose_init   : 5.0;
+    buildAll(wInit, dInit);
+  }
+});
+
+setReady();
+window.addEventListener("resize", () => setHeight(document.body.scrollHeight + 16));
+</script>
+</body>
+</html>
