@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: transparent;
+    color: #FAFAFA;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body { padding: 4px 2px; }
+  .label { font-size: 13px; font-weight: 600; margin: 4px 4px 6px; color: #E5E7EB; }
+  .row {
+    display: flex; align-items: stretch; gap: 8px;
+    background: #1E2530; border-radius: 12px; padding: 8px;
+    box-shadow: inset 0 0 0 1px #2A3342;
+  }
+  button.step {
+    flex: 0 0 56px;
+    background: #0B1018; color: #FFFFFF;
+    border: 1px solid #374151; border-radius: 10px;
+    font-size: 26px; font-weight: 700;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: background .12s;
+  }
+  button.step:active { background: #1F2937; }
+  input.value {
+    flex: 1 1 auto; min-width: 0;
+    background: #0B1018;
+    border: 1px solid #374151; border-radius: 10px;
+    color: #FFFFFF; text-align: center;
+    font-size: 30px; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    padding: 8px 4px;
+    outline: none;
+    -moz-appearance: textfield;
+  }
+  input.value:focus {
+    border-color: #22C55E;
+    box-shadow: 0 0 0 2px rgba(34,197,94,0.25);
+  }
+  input.value::-webkit-outer-spin-button,
+  input.value::-webkit-inner-spin-button {
+    -webkit-appearance: none; margin: 0;
+  }
+  .unit {
+    flex: 0 0 auto; align-self: center;
+    font-size: 14px; color: #9CA3AF; padding: 0 8px;
+    min-width: 64px; text-align: center;
+  }
+  .hint {
+    font-size: 12px; color: #9CA3AF;
+    margin: 6px 4px 0;
+  }
+</style>
+</head>
+<body>
+
+<div class="label">流速 ml/hr</div>
+<div class="row">
+  <button class="step" id="dec" type="button" aria-label="減少 0.1">−</button>
+  <input
+    class="value"
+    id="value"
+    type="number"
+    inputmode="decimal"
+    pattern="[0-9]*\.?[0-9]*"
+    step="0.1"
+    min="0"
+    max="300"
+    autocomplete="off"
+  />
+  <button class="step" id="inc" type="button" aria-label="增加 0.1">+</button>
+  <div class="unit">ml/hr</div>
+</div>
+<div class="hint">點選欄位以叫出數字鍵盤直接輸入；或使用 ＋ / − 微調 0.1。</div>
+
+<script>
+function sendToStreamlit(type, data) {
+  const out = Object.assign({ isStreamlitMessage: true, type: type }, data);
+  window.parent.postMessage(out, "*");
+}
+function setReady()      { sendToStreamlit("streamlit:componentReady", { apiVersion: 1 }); }
+function setHeight(h)    { sendToStreamlit("streamlit:setFrameHeight", { height: h }); }
+function setValue(v)     { sendToStreamlit("streamlit:setComponentValue", { value: v, dataType: "json" }); }
+
+const MIN = 0.0, MAX = 300.0, STEP = 0.1;
+const input = document.getElementById('value');
+const inc = document.getElementById('inc');
+const dec = document.getElementById('dec');
+
+let currentVersion = null;
+let lastSent = null;
+
+function clamp(v) {
+  if (isNaN(v)) return MIN;
+  return Math.max(MIN, Math.min(MAX, v));
+}
+
+function round1(v) { return Math.round(v * 10) / 10; }
+
+function format1(v) { return v.toFixed(1); }
+
+function emit(v) {
+  if (lastSent === v) return;
+  lastSent = v;
+  setValue({ rate: v });
+}
+
+function setFromUser(v, opts) {
+  v = round1(clamp(v));
+  if (!opts || !opts.skipInput) input.value = format1(v);
+  emit(v);
+}
+
+input.addEventListener('input', () => {
+  // 允許輸入過程，僅在合法時 emit
+  const raw = parseFloat(input.value);
+  if (!isNaN(raw)) setFromUser(raw, { skipInput: true });
+});
+input.addEventListener('blur', () => {
+  const raw = parseFloat(input.value);
+  setFromUser(isNaN(raw) ? MIN : raw);
+});
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') input.blur();
+});
+
+inc.addEventListener('click', () => {
+  const v = round1((parseFloat(input.value) || 0) + STEP);
+  setFromUser(v);
+});
+dec.addEventListener('click', () => {
+  const v = round1((parseFloat(input.value) || 0) - STEP);
+  setFromUser(v);
+});
+
+window.addEventListener("message", (event) => {
+  if (!event.data || event.data.type !== "streamlit:render") return;
+  const args = event.data.args || {};
+  const v = args.version;
+  if (v !== currentVersion) {
+    currentVersion = v;
+    const init = (typeof args.initial === "number") ? args.initial : 0.0;
+    input.value = format1(round1(clamp(init)));
+    lastSent = parseFloat(input.value);
+  }
+  setTimeout(() => setHeight(document.body.scrollHeight + 16), 30);
+});
+
+setReady();
+window.addEventListener("resize", () => setHeight(document.body.scrollHeight + 16));
+</script>
+</body>
+</html>

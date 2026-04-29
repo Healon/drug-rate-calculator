@@ -41,6 +41,10 @@ _wheel_picker = components.declare_component(
     "wheel_picker",
     path=os.path.join(_DIR, "wheel_picker"),
 )
+_rate_input = components.declare_component(
+    "rate_input",
+    path=os.path.join(_DIR, "rate_input"),
+)
 
 
 def wheel_picker(weight_init: float, dose_init: float, version: int,
@@ -51,6 +55,15 @@ def wheel_picker(weight_init: float, dose_init: float, version: int,
         version=int(version),
         mode=mode,
         default={"weight": float(weight_init), "dose": float(dose_init), "v": int(version)},
+        key=key,
+    )
+
+
+def rate_input(initial: float, version: int, key: str = "rate"):
+    return _rate_input(
+        initial=float(initial),
+        version=int(version),
+        default={"rate": float(initial)},
         key=key,
     )
 
@@ -66,6 +79,8 @@ ss.setdefault("dose_init", 5.0)
 ss.setdefault("current_weight", 60.0)
 ss.setdefault("current_dose", 5.0)
 ss.setdefault("current_rate", 11.3)  # 60 kg × 5 mcg/kg/min 對應流速
+ss.setdefault("rate_init", 11.3)
+ss.setdefault("rate_version", 0)
 ss.setdefault("wheel_version", 0)
 
 
@@ -249,14 +264,13 @@ def step3_rate():
     st.subheader("輸入幫浦流速")
     st.caption("輸入 IV pump 顯示的流速 ml/hr，將反推目前劑量。")
 
-    st.number_input(
-        "流速 ml/hr",
-        min_value=0.0,
-        max_value=300.0,
-        step=0.1,
-        format="%.1f",
-        key="current_rate",
+    rv = rate_input(
+        initial=ss.rate_init,
+        version=ss.rate_version,
+        key="rate_input_step3",
     )
+    if isinstance(rv, dict) and "rate" in rv:
+        ss.current_rate = round_half_up(float(rv["rate"]), 1)
 
     st.markdown(
         f"<div style='text-align:center;font-size:18px;color:#D1D5DB;margin:8px 0 4px;'>"
