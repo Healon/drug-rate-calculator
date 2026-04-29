@@ -11,6 +11,28 @@ st.set_page_config(
     layout="centered",
 )
 
+# 全域 CSS：手機上強制 columns 保持橫向、按鈕緊湊
+st.markdown(
+    """
+    <style>
+      [data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important;
+        gap: 6px !important;
+      }
+      [data-testid="stColumn"] {
+        min-width: 0 !important;
+      }
+      .quick-dose [data-testid="stButton"] button {
+        padding: 0.35rem 0.2rem !important;
+        min-height: 38px !important;
+        font-size: 15px !important;
+        font-weight: 600 !important;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # =========================
 # Custom Component (雙向 wheel picker)
 # =========================
@@ -228,7 +250,8 @@ def step3_dose():
     )
     sync_picker(picker_value)
 
-    st.markdown("##### 快速劑量")
+    st.markdown("##### 快速劑量 <span style='font-size:12px;color:#9CA3AF;font-weight:400;'>mcg/kg/min</span>", unsafe_allow_html=True)
+    st.markdown("<div class='quick-dose'>", unsafe_allow_html=True)
     quick_cols = st.columns(6)
     for col, dose_value in zip(quick_cols, [5.0, 10.0, 15.0, 20.0, 30.0, 50.0]):
         with col:
@@ -239,7 +262,7 @@ def step3_dose():
                 use_container_width=True,
                 key=f"qd_{dose_value}",
             )
-    st.caption("單位：mcg/kg/min")
+    st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown(
         f"<div style='text-align:center;font-size:18px;color:#D1D5DB;margin:8px 0 4px;'>"
