@@ -65,6 +65,7 @@ ss.setdefault("weight_init", 60.0)
 ss.setdefault("dose_init", 5.0)
 ss.setdefault("current_weight", 60.0)
 ss.setdefault("current_dose", 5.0)
+ss.setdefault("current_rate", 11.3)  # 60 kg × 5 mcg/kg/min 對應流速
 ss.setdefault("wheel_version", 0)
 
 
@@ -78,6 +79,13 @@ def round_half_up(value: float, digits: int = 1) -> float:
 
 def calculate_dopamine_rate(weight_kg: float, dose_mcg_kg_min: float) -> float:
     return (dose_mcg_kg_min * weight_kg * 60) / 1600
+
+
+def calculate_dose_from_rate(weight_kg: float, rate_ml_hr: float) -> float:
+    """反向計算：由流速 ml/hr 反推劑量 mcg/kg/min。"""
+    if weight_kg <= 0:
+        return 0.0
+    return rate_ml_hr * 1600 / (weight_kg * 60)
 
 
 # =========================
@@ -120,7 +128,7 @@ def sync_picker(picker_value):
 # Breadcrumb
 # =========================
 def breadcrumb(current: int):
-    labels = ["藥物", "體重", "劑量", "結果"]
+    labels = ["藥物", "體重", "流速", "劑量"]
     parts = []
     for i, label in enumerate(labels, start=1):
         if i < current:
@@ -232,46 +240,30 @@ def step2_weight():
 
 
 # =========================
-# Step 3 — 劑量
+# Step 3 — 流速
 # =========================
-def step3_dose():
+def step3_rate():
     render_header()
     breadcrumb(3)
 
-    st.subheader("設定劑量")
-    st.caption("整數滾輪以 1 為單位、小數滾輪每格 0.1。建議劑量範圍 5.0–50.0 mcg/kg/min。")
+    st.subheader("輸入幫浦流速")
+    st.caption("輸入 IV pump 顯示的流速 ml/hr，將反推目前劑量。")
 
-    picker_value = wheel_picker(
-        weight_init=ss.weight_init,
-        dose_init=ss.dose_init,
-        version=ss.wheel_version,
-        mode="dose_only",
-        key="picker_step3",
+    st.number_input(
+        "流速 ml/hr",
+        min_value=0.0,
+        max_value=300.0,
+        step=0.1,
+        format="%.1f",
+        key="current_rate",
     )
-    sync_picker(picker_value)
-
-    st.markdown("##### 快速劑量 <span style='font-size:12px;color:#9CA3AF;font-weight:400;'>mcg/kg/min</span>", unsafe_allow_html=True)
-    st.markdown("<div class='quick-dose'>", unsafe_allow_html=True)
-    quick_cols = st.columns(6)
-    for col, dose_value in zip(quick_cols, [5.0, 10.0, 15.0, 20.0, 30.0, 50.0]):
-        with col:
-            st.button(
-                f"{dose_value:g}",
-                on_click=set_quick_dose,
-                args=(dose_value,),
-                use_container_width=True,
-                key=f"qd_{dose_value}",
-            )
-    st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown(
         f"<div style='text-align:center;font-size:18px;color:#D1D5DB;margin:8px 0 4px;'>"
-        f"目前劑量：<b style='font-size:26px;color:#FFFFFF;'>{ss.current_dose:.1f}</b> mcg/kg/min</div>",
+        f"目前流速：<b style='font-size:26px;color:#FFFFFF;'>{ss.current_rate:.1f}</b> ml/hr"
+        f"<br><span style='font-size:14px;color:#9CA3AF;'>體重 {ss.current_weight:.1f} kg</span></div>",
         unsafe_allow_html=True,
     )
-
-    if ss.current_dose < 5.0:
-        st.warning("目前劑量低於表格建議起始劑量 5.0 mcg/kg/min，請確認醫囑。")
 
     st.divider()
     cols = st.columns(2)
@@ -283,16 +275,16 @@ def step3_dose():
 
 
 # =========================
-# Step 4 — 結果
+# Step 4 — 劑量結果（反向計算）
 # =========================
 def step4_result():
     render_header()
     breadcrumb(4)
 
     weight = ss.current_weight
-    dose = ss.current_dose
-    calc_ml_hr = calculate_dopamine_rate(weight, dose)
-    display_ml_hr = round_half_up(calc_ml_hr, 1)
+    rate = ss.current_rate
+    calc_dose = calculate_dose_from_rate(weight, rate)
+    display_dose = round_half_up(calc_dose, 1)
 
     st.markdown(
         f"""
@@ -304,14 +296,14 @@ def step4_result():
             border: 3px solid #22C55E;
         ">
             <p style="font-size: 18px; color: #BBF7D0; margin-bottom: 4px;">
-                建議幫浦設定流速
+                目前實際劑量
             </p>
             <h1 style="font-size: 52px; color: #22C55E; margin: 0;">
-                {display_ml_hr:.1f}
-                <span style="font-size: 26px;">ml/hr</span>
+                {display_dose:.1f}
+                <span style="font-size: 26px;">mcg/kg/min</span>
             </h1>
             <p style="font-size: 22px; color: #FFFFFF; margin-top: 12px; margin-bottom: 0;">
-                目前劑量：<b>{dose:.1f} mcg/kg/min</b>
+                目前流速：<b>{rate:.1f} ml/hr</b>
             </p>
             <p style="font-size: 18px; color: #D1D5DB; margin-top: 8px;">
                 目前體重：{weight:.1f} kg
@@ -321,8 +313,20 @@ def step4_result():
         unsafe_allow_html=True,
     )
 
-    st.caption(f"原始精確計算值：{calc_ml_hr:.2f} ml/hr")
-    st.caption(f"計算式：{dose:.1f} × {weight:.1f} × 60 ÷ 1600 = {calc_ml_hr:.2f} ml/hr")
+    st.caption(f"原始精確計算值：{calc_dose:.2f} mcg/kg/min")
+    st.caption(
+        f"計算式：{rate:.1f} × 1600 ÷ ({weight:.1f} × 60) = {calc_dose:.2f} mcg/kg/min"
+    )
+
+    if calc_dose > 50.0:
+        st.error(
+            f"⚠ 計算劑量 {display_dose:.1f} mcg/kg/min 超過建議最大 50.0，"
+            "請覆核流速與體重輸入是否正確。"
+        )
+    elif calc_dose < 5.0:
+        st.warning(
+            f"目前計算劑量 {display_dose:.1f} mcg/kg/min 低於建議起始 5.0，請確認醫囑。"
+        )
 
     st.error("高警訊藥物提醒：給藥前請完成雙人覆核流程。")
 
@@ -333,14 +337,14 @@ def step4_result():
         st.button("修改體重", use_container_width=True,
                   on_click=goto, args=(2,), key="s4_edit_w")
     with cols[1]:
-        st.button("修改劑量", use_container_width=True,
-                  on_click=goto, args=(3,), key="s4_edit_d")
+        st.button("修改流速", use_container_width=True,
+                  on_click=goto, args=(3,), key="s4_edit_r")
     with cols[2]:
         st.button("重新開始", use_container_width=True,
                   on_click=restart, key="s4_restart")
 
     st.caption("資料版本：急重症藥物泡製流速表 1110701")
-    st.caption("目前版本：MVP v0.5｜Dopamine 單藥物 4 步驟向導")
+    st.caption("目前版本：MVP v0.5-rate｜Dopamine 反向計算（流速 → 劑量）")
 
 
 # =========================
@@ -351,6 +355,6 @@ if ss.step == 1:
 elif ss.step == 2:
     step2_weight()
 elif ss.step == 3:
-    step3_dose()
+    step3_rate()
 else:
     step4_result()
