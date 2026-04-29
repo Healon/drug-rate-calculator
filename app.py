@@ -84,7 +84,14 @@ def calculate_dopamine_rate(weight_kg: float, dose_mcg_kg_min: float) -> float:
 # Navigation
 # =========================
 def goto(step: int):
-    ss.step = max(1, min(4, step))
+    new_step = max(1, min(4, step))
+    if new_step != ss.step:
+        # 切換步驟時，把 wheel picker 的初始值同步成目前實際值並 bump 版本，
+        # 避免新 step 的 picker 用舊 init 重建後反向覆蓋已設定的體重/劑量。
+        ss.weight_init = ss.current_weight
+        ss.dose_init = ss.current_dose
+        ss.wheel_version += 1
+    ss.step = new_step
 
 
 def next_step():
