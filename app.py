@@ -313,7 +313,7 @@ def step1_drug_selection():
                 unsafe_allow_html=True,
             )
             st.button(
-                f"{drug['display_name']}\n{drug['category']}",
+                drug['display_name'],
                 on_click=select_drug,
                 args=(drug_key,),
                 use_container_width=True,
