@@ -11,55 +11,23 @@ st.set_page_config(
     layout="centered",
 )
 
-# 全域 CSS：壓縮手機垂直間距、columns 保持橫向、按鈕緊湊
+# 全域 CSS：手機上強制 columns 保持橫向、快速劑量按鈕緊湊
 st.markdown(
     """
     <style>
-      /* 主區塊上下內距縮小 */
-      .block-container {
-        padding-top: 1rem !important;
-        padding-bottom: 1rem !important;
-      }
-      /* Streamlit 區塊間距收緊 */
-      [data-testid="stVerticalBlock"] {
-        gap: 0.4rem !important;
-      }
-      /* 標題、副標、caption 邊距收緊 */
-      h1, h2, h3, h4, h5 {
-        margin-top: 0.2rem !important;
-        margin-bottom: 0.4rem !important;
-        padding: 0 !important;
-      }
-      [data-testid="stCaptionContainer"] {
-        margin-top: 0 !important;
-        margin-bottom: 0.3rem !important;
-      }
-      /* divider 收緊 */
-      hr { margin: 0.5rem 0 !important; }
-      /* columns 不換行 */
       [data-testid="stHorizontalBlock"] {
         flex-wrap: nowrap !important;
         gap: 6px !important;
       }
-      [data-testid="stColumn"] { min-width: 0 !important; }
-      /* 快速劑量按鈕 */
+      [data-testid="stColumn"] {
+        min-width: 0 !important;
+      }
       .quick-dose [data-testid="stButton"] button {
-        padding: 0.3rem 0.2rem !important;
-        min-height: 34px !important;
+        padding: 0.35rem 0.2rem !important;
+        min-height: 38px !important;
         font-size: 15px !important;
         font-weight: 600 !important;
       }
-      /* 一般按鈕高度 */
-      [data-testid="stButton"] button {
-        min-height: 40px !important;
-      }
-      /* 警告/提示框內距收緊 */
-      [data-testid="stAlert"] {
-        padding: 0.5rem 0.75rem !important;
-        margin: 0.3rem 0 !important;
-      }
-      /* iframe 元件預設 margin */
-      iframe { margin: 0 !important; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -237,7 +205,7 @@ def step2_weight():
     breadcrumb(2)
 
     st.subheader("設定體重")
-    st.caption("ABW 或 IBW 依院內規範。")
+    st.caption("整數滾輪以 1 為單位、小數滾輪每格 0.1。請依院內規範確認使用實際體重 ABW 或理想體重 IBW。")
 
     picker_value = wheel_picker(
         weight_init=ss.weight_init,
@@ -249,11 +217,12 @@ def step2_weight():
     sync_picker(picker_value)
 
     st.markdown(
-        f"<div style='text-align:center;font-size:16px;color:#D1D5DB;margin:4px 0 6px;'>"
-        f"目前體重：<b style='font-size:22px;color:#FFFFFF;'>{ss.current_weight:.1f}</b> kg</div>",
+        f"<div style='text-align:center;font-size:18px;color:#D1D5DB;margin:8px 0 16px;'>"
+        f"目前體重：<b style='font-size:26px;color:#FFFFFF;'>{ss.current_weight:.1f}</b> kg</div>",
         unsafe_allow_html=True,
     )
 
+    st.divider()
     cols = st.columns(2)
     with cols[0]:
         st.button("← 上一步", use_container_width=True, on_click=prev_step, key="s2_prev")
@@ -270,7 +239,7 @@ def step3_dose():
     breadcrumb(3)
 
     st.subheader("設定劑量")
-    st.caption("建議範圍 5.0–50.0 mcg/kg/min。")
+    st.caption("整數滾輪以 1 為單位、小數滾輪每格 0.1。建議劑量範圍 5.0–50.0 mcg/kg/min。")
 
     picker_value = wheel_picker(
         weight_init=ss.weight_init,
@@ -296,14 +265,15 @@ def step3_dose():
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown(
-        f"<div style='text-align:center;font-size:16px;color:#D1D5DB;margin:4px 0 4px;'>"
-        f"目前劑量：<b style='font-size:22px;color:#FFFFFF;'>{ss.current_dose:.1f}</b> mcg/kg/min</div>",
+        f"<div style='text-align:center;font-size:18px;color:#D1D5DB;margin:8px 0 4px;'>"
+        f"目前劑量：<b style='font-size:26px;color:#FFFFFF;'>{ss.current_dose:.1f}</b> mcg/kg/min</div>",
         unsafe_allow_html=True,
     )
 
     if ss.current_dose < 5.0:
-        st.warning("目前劑量低於建議起始劑量 5.0，請確認醫囑。")
+        st.warning("目前劑量低於表格建議起始劑量 5.0 mcg/kg/min，請確認醫囑。")
 
+    st.divider()
     cols = st.columns(2)
     with cols[0]:
         st.button("← 上一步", use_container_width=True, on_click=prev_step, key="s3_prev")
