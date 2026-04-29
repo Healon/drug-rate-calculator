@@ -129,8 +129,8 @@ function setValue(value)   { sendToStreamlit("streamlit:setComponentValue", { va
 // Wheel implementation
 // =========================
 const ITEM_H = 36;
-const W_MIN = 10, W_MAX = 200;
-const D_MIN = 0,  D_MAX = 50;
+let W_MIN = 10, W_MAX = 200;
+let D_MIN = 0,  D_MAX = 50;
 
 const state = { w_int: 60, w_dec: 0, d_int: 5, d_dec: 0 };
 let currentVersion = null;
@@ -249,8 +249,15 @@ window.addEventListener("message", (event) => {
   const v = args.version;
   if (v !== currentVersion) {
     currentVersion = v;
+    if (typeof args.w_min === "number") W_MIN = args.w_min;
+    if (typeof args.w_max === "number") W_MAX = args.w_max;
+    if (typeof args.d_min === "number") D_MIN = args.d_min;
+    if (typeof args.d_max === "number") D_MAX = args.d_max;
     const wInit = (typeof args.weight_init === "number") ? args.weight_init : 60.0;
     const dInit = (typeof args.dose_init   === "number") ? args.dose_init   : 5.0;
+    built = false;  // 範圍可能改變，強制重新 attach scroll
+    document.getElementById('w-int').innerHTML = '';
+    document.getElementById('d-int').innerHTML = '';
     buildAll(wInit, dInit);
   }
 });

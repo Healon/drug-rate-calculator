@@ -7,11 +7,11 @@ from decimal import Decimal, ROUND_HALF_UP
 # Page config
 # =========================
 st.set_page_config(
-    page_title="急重症藥物速率換算",
+    page_title="急重症藥物速率換算（反向）",
     layout="centered",
 )
 
-# 全域 CSS：手機上強制 columns 保持橫向、快速劑量按鈕緊湊
+# 全域 CSS
 st.markdown(
     """
     <style>
@@ -28,13 +28,68 @@ st.markdown(
         font-size: 15px !important;
         font-weight: 600 !important;
       }
+      .drug-card [data-testid="stButton"] button {
+        background: #1E2530 !important;
+        border: 1px solid #2A3342 !important;
+        color: #FAFAFA !important;
+        padding: 14px 12px !important;
+        text-align: left !important;
+        font-size: 16px !important;
+        white-space: pre-line !important;
+        min-height: 84px !important;
+      }
+      .drug-card.selected [data-testid="stButton"] button {
+        border-color: #22C55E !important;
+        background: #102A1D !important;
+        box-shadow: 0 0 0 2px rgba(34,197,94,0.35) !important;
+      }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 # =========================
-# Custom Component (雙向 wheel picker)
+# Drug catalog
+# =========================
+DRUGS = {
+    "dopamine": {
+        "key": "dopamine",
+        "display_name": "Dopamine / Easydopa",
+        "category": "升壓 / 強心",
+        "needs_weight": True,
+        "dose_unit": "mcg/kg/min",
+        "concentrations": [
+            {"label": "Easydopa 800 mg / 500 ml", "mcg_per_ml": 1600, "note": "不須稀釋"},
+        ],
+        "dose_default": 5.0,
+        "dose_warn_low": 5.0,
+        "dose_warn_high": 50.0,
+        "rate_default": 11.3,
+        "rate_max": 300.0,
+    },
+    "norepinephrine": {
+        "key": "norepinephrine",
+        "display_name": "Norepinephrine",
+        "category": "升壓",
+        "needs_weight": False,
+        "dose_unit": "mcg/min",
+        "concentrations": [
+            {"label": "低濃度 8 mg / 500 ml D5W", "mcg_per_ml": 16,
+             "note": "Levophed 4 mg/amp × 2 加入 500 ml D5W"},
+            {"label": "高濃度 8 mg / 100 ml D5W", "mcg_per_ml": 80,
+             "note": "Levophed 4 mg/amp × 2 加入 100 ml D5W"},
+        ],
+        "dose_default": 2.0,
+        "dose_warn_low": 1.0,
+        "dose_warn_high": 30.0,
+        "rate_default": 7.5,  # NE 低濃度 2 mcg/min
+        "rate_max": 200.0,
+    },
+}
+DRUG_ORDER = ["dopamine", "norepinephrine"]
+
+# =========================
+# Custom Components
 # =========================
 _DIR = os.path.dirname(os.path.abspath(__file__))
 _wheel_picker = components.declare_component(
@@ -48,12 +103,15 @@ _rate_input = components.declare_component(
 
 
 def wheel_picker(weight_init: float, dose_init: float, version: int,
-                 mode: str = "both", key: str = "wheel"):
+                 mode: str = "both", w_min: int = 10, w_max: int = 200,
+                 d_min: int = 0, d_max: int = 50, key: str = "wheel"):
     return _wheel_picker(
         weight_init=float(weight_init),
         dose_init=float(dose_init),
         version=int(version),
         mode=mode,
+        w_min=int(w_min), w_max=int(w_max),
+        d_min=int(d_min), d_max=int(d_max),
         default={"weight": float(weight_init), "dose": float(dose_init), "v": int(version)},
         key=key,
     )
@@ -73,50 +131,86 @@ def rate_input(initial: float, version: int, key: str = "rate"):
 # =========================
 ss = st.session_state
 ss.setdefault("step", 1)
+ss.setdefault("drug_key", None)
+ss.setdefault("concentration_index", 0)
 ss.setdefault("spec_confirmed", False)
 ss.setdefault("weight_init", 60.0)
 ss.setdefault("dose_init", 5.0)
 ss.setdefault("current_weight", 60.0)
 ss.setdefault("current_dose", 5.0)
-ss.setdefault("current_rate", 11.3)  # 60 kg × 5 mcg/kg/min 對應流速
+ss.setdefault("current_rate", 11.3)
 ss.setdefault("rate_init", 11.3)
 ss.setdefault("rate_version", 0)
 ss.setdefault("wheel_version", 0)
 
 
 # =========================
-# Utility
+# Helpers
 # =========================
 def round_half_up(value: float, digits: int = 1) -> float:
     pattern = "0." + "0" * digits
     return float(Decimal(str(value)).quantize(Decimal(pattern), rounding=ROUND_HALF_UP))
 
 
-def calculate_dopamine_rate(weight_kg: float, dose_mcg_kg_min: float) -> float:
-    return (dose_mcg_kg_min * weight_kg * 60) / 1600
+def current_drug():
+    if ss.drug_key is None:
+        return None
+    return DRUGS.get(ss.drug_key)
 
 
-def calculate_dose_from_rate(weight_kg: float, rate_ml_hr: float) -> float:
-    """反向計算：由流速 ml/hr 反推劑量 mcg/kg/min。"""
-    if weight_kg <= 0:
-        return 0.0
-    return rate_ml_hr * 1600 / (weight_kg * 60)
+def current_concentration():
+    drug = current_drug()
+    if drug is None:
+        return None
+    idx = max(0, min(ss.concentration_index, len(drug["concentrations"]) - 1))
+    return drug["concentrations"][idx]
+
+
+def calculate_dose_from_rate(drug, weight: float, rate: float) -> float:
+    """反向：rate (ml/hr) → dose。"""
+    conc = current_concentration()["mcg_per_ml"]
+    if drug["needs_weight"]:
+        if weight <= 0:
+            return 0.0
+        return rate * conc / (weight * 60)
+    return rate * conc / 60
+
+
+def step_keys():
+    drug = current_drug()
+    if drug is None:
+        return ["drug", "weight", "rate", "result"]
+    if drug["needs_weight"]:
+        return ["drug", "weight", "rate", "result"]
+    return ["drug", "rate", "result"]
+
+
+def step_label(key: str) -> str:
+    return {"drug": "藥物", "weight": "體重", "rate": "流速", "result": "劑量"}[key]
+
+
+def total_steps() -> int:
+    return len(step_keys())
 
 
 # =========================
 # Navigation
 # =========================
 def goto(step: int):
-    new_step = max(1, min(4, step))
+    new_step = max(1, min(total_steps(), step))
     if new_step != ss.step:
-        # 切換步驟時，把所有 picker 的初始值同步成目前實際值並 bump 版本，
-        # 避免新 step 的 picker 用舊 init 重建後反向覆蓋已設定值。
         ss.weight_init = ss.current_weight
         ss.dose_init = ss.current_dose
         ss.rate_init = ss.current_rate
         ss.wheel_version += 1
         ss.rate_version += 1
     ss.step = new_step
+
+
+def goto_key(key: str):
+    keys = step_keys()
+    if key in keys:
+        goto(keys.index(key) + 1)
 
 
 def next_step():
@@ -132,12 +226,15 @@ def restart():
     ss.spec_confirmed = False
 
 
-def set_quick_dose(value: float):
-    """快速劑量按鈕：保留目前體重，重新定位劑量滾輪。"""
-    ss.weight_init = ss.current_weight
-    ss.dose_init = float(value)
-    ss.current_dose = float(value)
-    ss.wheel_version += 1
+def select_drug(drug_key: str):
+    if ss.drug_key != drug_key:
+        ss.drug_key = drug_key
+        ss.concentration_index = 0
+        ss.spec_confirmed = False
+        drug = DRUGS[drug_key]
+        ss.rate_init = drug["rate_default"]
+        ss.current_rate = drug["rate_default"]
+        ss.rate_version += 1
 
 
 def sync_picker(picker_value):
@@ -151,13 +248,14 @@ def sync_picker(picker_value):
 # =========================
 # Breadcrumb
 # =========================
-def breadcrumb(current: int):
-    labels = ["藥物", "體重", "流速", "劑量"]
+def breadcrumb(current_idx: int):
+    keys = step_keys()
     parts = []
-    for i, label in enumerate(labels, start=1):
-        if i < current:
+    for i, key in enumerate(keys, start=1):
+        label = step_label(key)
+        if i < current_idx:
             color, weight, bg = "#22C55E", "600", "#102A1D"
-        elif i == current:
+        elif i == current_idx:
             color, weight, bg = "#60A5FA", "700", "#0B1E36"
         else:
             color, weight, bg = "#6B7280", "500", "#1F2937"
@@ -177,17 +275,17 @@ def breadcrumb(current: int):
 
 
 # =========================
-# Common header
+# Header
 # =========================
 def render_header(big: bool = False, show_warning: bool = False):
     if big:
         st.title("急重症藥物速率換算")
-        st.caption("Adult Only｜成人臨床輔助計算工具")
+        st.caption("Adult Only｜反向計算（流速 → 劑量）")
     else:
         st.markdown(
             "<div style='font-size:18px;font-weight:700;'>急重症藥物速率換算"
             "<span style='font-size:12px;color:#9CA3AF;font-weight:500;margin-left:8px;'>"
-            "Adult Only</span></div>",
+            "Adult Only · 反向</span></div>",
             unsafe_allow_html=True,
         )
     if show_warning:
@@ -203,13 +301,58 @@ def step1_drug_selection():
     render_header(big=True, show_warning=True)
     breadcrumb(1)
 
-    st.header("Dopamine / Easydopa")
-    st.info(
-        """
-        **藥品規格：** Easydopa 800 mg / 500 ml
-        **建議劑量範圍：** 起始 5.0，最大 50.0 mcg/kg/min
-        """
-    )
+    st.subheader("選擇藥物")
+
+    cols = st.columns(len(DRUG_ORDER))
+    for col, drug_key in zip(cols, DRUG_ORDER):
+        drug = DRUGS[drug_key]
+        is_selected = (ss.drug_key == drug_key)
+        with col:
+            st.markdown(
+                f"<div class='drug-card{' selected' if is_selected else ''}'>",
+                unsafe_allow_html=True,
+            )
+            st.button(
+                f"{drug['display_name']}\n{drug['category']}",
+                on_click=select_drug,
+                args=(drug_key,),
+                use_container_width=True,
+                key=f"drug_{drug_key}",
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    if ss.drug_key is None:
+        st.info("請先點選一項藥物。")
+        return
+
+    drug = current_drug()
+
+    st.divider()
+    st.markdown(f"### {drug['display_name']}")
+
+    if len(drug["concentrations"]) > 1:
+        st.markdown("**選擇泡製濃度**")
+        labels = [c["label"] for c in drug["concentrations"]]
+        ss.concentration_index = st.radio(
+            "濃度",
+            options=list(range(len(labels))),
+            format_func=lambda i: labels[i],
+            index=ss.concentration_index,
+            label_visibility="collapsed",
+            key="conc_radio",
+        )
+
+    conc = current_concentration()
+    spec_lines = [
+        f"**藥品規格：** {conc['label']}",
+        f"**濃度：** {conc['mcg_per_ml']} mcg/ml",
+        f"**建議劑量範圍：** 起始 {drug['dose_warn_low']:g}，最大 {drug['dose_warn_high']:g} {drug['dose_unit']}",
+    ]
+    if conc.get("note"):
+        spec_lines.insert(1, f"**泡製方式：** {conc['note']}")
+    if not drug["needs_weight"]:
+        spec_lines.append("**注意：** 此藥物劑量計算 **不需體重**。")
+    st.info("\n\n".join(spec_lines))
 
     st.checkbox(
         "我已確認藥品規格與目前使用品項相符",
@@ -230,9 +373,9 @@ def step1_drug_selection():
 
 
 # =========================
-# Step 2 — 體重
+# Step weight — 體重
 # =========================
-def step2_weight():
+def step_weight():
     render_header()
     breadcrumb(2)
 
@@ -244,7 +387,7 @@ def step2_weight():
         dose_init=ss.dose_init,
         version=ss.wheel_version,
         mode="weight_only",
-        key="picker_step2",
+        key="picker_weight",
     )
     sync_picker(picker_value)
 
@@ -257,18 +400,19 @@ def step2_weight():
     st.divider()
     cols = st.columns(2)
     with cols[0]:
-        st.button("← 上一步", use_container_width=True, on_click=prev_step, key="s2_prev")
+        st.button("← 上一步", use_container_width=True, on_click=prev_step, key="sw_prev")
     with cols[1]:
         st.button("下一步 →", type="primary", use_container_width=True,
-                  on_click=next_step, key="s2_next")
+                  on_click=next_step, key="sw_next")
 
 
 # =========================
-# Step 3 — 流速
+# Step rate — 流速輸入
 # =========================
-def step3_rate():
+def step_rate():
+    drug = current_drug()
     render_header()
-    breadcrumb(3)
+    breadcrumb(step_keys().index("rate") + 1)
 
     st.subheader("輸入幫浦流速")
     st.caption("輸入 IV pump 顯示的流速 ml/hr，將反推目前劑量。")
@@ -276,38 +420,51 @@ def step3_rate():
     rv = rate_input(
         initial=ss.rate_init,
         version=ss.rate_version,
-        key="rate_input_step3",
+        key="rate_input_main",
     )
     if isinstance(rv, dict) and "rate" in rv:
         ss.current_rate = round_half_up(float(rv["rate"]), 1)
 
+    weight_line = (
+        f"<br><span style='font-size:14px;color:#9CA3AF;'>體重 {ss.current_weight:.1f} kg</span>"
+        if drug["needs_weight"] else
+        f"<br><span style='font-size:14px;color:#9CA3AF;'>{drug['display_name']}（無需體重）</span>"
+    )
     st.markdown(
         f"<div style='text-align:center;font-size:18px;color:#D1D5DB;margin:8px 0 4px;'>"
         f"目前流速：<b style='font-size:26px;color:#FFFFFF;'>{ss.current_rate:.1f}</b> ml/hr"
-        f"<br><span style='font-size:14px;color:#9CA3AF;'>體重 {ss.current_weight:.1f} kg</span></div>",
+        f"{weight_line}</div>",
         unsafe_allow_html=True,
     )
 
     st.divider()
     cols = st.columns(2)
     with cols[0]:
-        st.button("← 上一步", use_container_width=True, on_click=prev_step, key="s3_prev")
+        st.button("← 上一步", use_container_width=True, on_click=prev_step, key="sr_prev")
     with cols[1]:
         st.button("下一步 →", type="primary", use_container_width=True,
-                  on_click=next_step, key="s3_next")
+                  on_click=next_step, key="sr_next")
 
 
 # =========================
-# Step 4 — 劑量結果（反向計算）
+# Step result — 劑量結果
 # =========================
-def step4_result():
+def step_result():
+    drug = current_drug()
+    conc = current_concentration()
     render_header()
-    breadcrumb(4)
+    breadcrumb(total_steps())
 
     weight = ss.current_weight
     rate = ss.current_rate
-    calc_dose = calculate_dose_from_rate(weight, rate)
+    calc_dose = calculate_dose_from_rate(drug, weight, rate)
     display_dose = round_half_up(calc_dose, 1)
+
+    weight_line = (
+        f"<p style='font-size:18px;color:#D1D5DB;margin-top:8px;'>目前體重：{weight:.1f} kg</p>"
+        if drug["needs_weight"] else
+        f"<p style='font-size:14px;color:#9CA3AF;margin-top:8px;'>{drug['display_name']}（無需體重）</p>"
+    )
 
     st.markdown(
         f"""
@@ -323,61 +480,71 @@ def step4_result():
             </p>
             <h1 style="font-size: 52px; color: #22C55E; margin: 0;">
                 {display_dose:.1f}
-                <span style="font-size: 26px;">mcg/kg/min</span>
+                <span style="font-size: 26px;">{drug['dose_unit']}</span>
             </h1>
             <p style="font-size: 22px; color: #FFFFFF; margin-top: 12px; margin-bottom: 0;">
                 目前流速：<b>{rate:.1f} ml/hr</b>
             </p>
-            <p style="font-size: 18px; color: #D1D5DB; margin-top: 8px;">
-                目前體重：{weight:.1f} kg
+            {weight_line}
+            <p style='font-size:13px;color:#9CA3AF;margin-top:8px;'>
+                濃度：{conc['mcg_per_ml']} mcg/ml ｜ {conc['label']}
             </p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    st.caption(f"原始精確計算值：{calc_dose:.2f} mcg/kg/min")
-    st.caption(
-        f"計算式：{rate:.1f} × 1600 ÷ ({weight:.1f} × 60) = {calc_dose:.2f} mcg/kg/min"
-    )
-
-    if calc_dose > 50.0:
-        st.error(
-            f"⚠ 計算劑量 {display_dose:.1f} mcg/kg/min 超過建議最大 50.0，"
-            "請覆核流速與體重輸入是否正確。"
+    st.caption(f"原始精確計算值：{calc_dose:.2f} {drug['dose_unit']}")
+    if drug["needs_weight"]:
+        st.caption(
+            f"計算式：{rate:.1f} × {conc['mcg_per_ml']} ÷ ({weight:.1f} × 60) = {calc_dose:.2f} {drug['dose_unit']}"
         )
-    elif calc_dose < 5.0:
+    else:
+        st.caption(
+            f"計算式：{rate:.1f} × {conc['mcg_per_ml']} ÷ 60 = {calc_dose:.2f} {drug['dose_unit']}"
+        )
+
+    if calc_dose > drug["dose_warn_high"]:
+        st.error(
+            f"⚠ 計算劑量 {display_dose:.1f} {drug['dose_unit']} 超過建議最大 "
+            f"{drug['dose_warn_high']:g}，請覆核流速與藥物參數是否正確。"
+        )
+    elif calc_dose < drug["dose_warn_low"]:
         st.warning(
-            f"目前計算劑量 {display_dose:.1f} mcg/kg/min 低於建議起始 5.0，請確認醫囑。"
+            f"目前計算劑量 {display_dose:.1f} {drug['dose_unit']} 低於建議起始 "
+            f"{drug['dose_warn_low']:g}，請確認醫囑。"
         )
 
     st.error("高警訊藥物提醒：給藥前請完成雙人覆核流程。")
 
     st.divider()
 
-    cols = st.columns(3)
-    with cols[0]:
-        st.button("修改體重", use_container_width=True,
-                  on_click=goto, args=(2,), key="s4_edit_w")
-    with cols[1]:
-        st.button("修改流速", use_container_width=True,
-                  on_click=goto, args=(3,), key="s4_edit_r")
-    with cols[2]:
-        st.button("重新開始", use_container_width=True,
-                  on_click=restart, key="s4_restart")
+    btns = []
+    if drug["needs_weight"]:
+        btns.append(("修改體重", lambda: goto_key("weight"), "edit_w"))
+    btns.append(("修改流速", lambda: goto_key("rate"), "edit_r"))
+    btns.append(("重新開始", restart, "restart"))
+
+    cols = st.columns(len(btns))
+    for col, (label, fn, k) in zip(cols, btns):
+        with col:
+            st.button(label, use_container_width=True, on_click=fn, key=f"sresult_{k}")
 
     st.caption("資料版本：急重症藥物泡製流速表 1110701")
-    st.caption("目前版本：MVP v0.5-rate｜Dopamine 反向計算（流速 → 劑量）")
+    st.caption("目前版本：MVP v0.6-rate｜反向計算 / Dopamine + Norepinephrine")
 
 
 # =========================
-# Main
+# Main dispatch
 # =========================
-if ss.step == 1:
+keys = step_keys()
+key = keys[ss.step - 1] if ss.step <= len(keys) else "drug"
+
+if key == "drug":
     step1_drug_selection()
-elif ss.step == 2:
-    step2_weight()
-elif ss.step == 3:
-    step3_rate()
+elif key == "weight":
+    step_weight()
+elif key == "rate":
+    step_rate()
 else:
-    step4_result()
+    step_result()
