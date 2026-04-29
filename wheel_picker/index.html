@@ -69,43 +69,49 @@
     margin: 4px 4px 0;
   }
   .lock-tag.show { display: block; }
+  body[data-mode="weight_only"] .dose-block { display: none; }
+  body[data-mode="dose_only"]   .weight-block { display: none; }
 </style>
 </head>
 <body>
 
-<div class="label">體重 kg</div>
-<div class="row">
-  <div class="group wide">
-    <div class="wheel" id="w-int"></div>
-    <div class="band"></div>
-    <div class="fade-top"></div><div class="fade-bot"></div>
+<div class="weight-block">
+  <div class="label">體重 kg</div>
+  <div class="row">
+    <div class="group wide">
+      <div class="wheel" id="w-int"></div>
+      <div class="band"></div>
+      <div class="fade-top"></div><div class="fade-bot"></div>
+    </div>
+    <div class="dot">.</div>
+    <div class="group">
+      <div class="wheel" id="w-dec"></div>
+      <div class="band"></div>
+      <div class="fade-top"></div><div class="fade-bot"></div>
+    </div>
+    <div class="unit">kg</div>
   </div>
-  <div class="dot">.</div>
-  <div class="group">
-    <div class="wheel" id="w-dec"></div>
-    <div class="band"></div>
-    <div class="fade-top"></div><div class="fade-bot"></div>
-  </div>
-  <div class="unit">kg</div>
+  <div class="lock-tag" id="w-lock">已達上限，小數鎖定為 0</div>
 </div>
-<div class="lock-tag" id="w-lock">已達上限，小數鎖定為 0</div>
 
-<div class="label">劑量 mcg/kg/min</div>
-<div class="row">
-  <div class="group wide">
-    <div class="wheel" id="d-int"></div>
-    <div class="band"></div>
-    <div class="fade-top"></div><div class="fade-bot"></div>
+<div class="dose-block">
+  <div class="label">劑量 mcg/kg/min</div>
+  <div class="row">
+    <div class="group wide">
+      <div class="wheel" id="d-int"></div>
+      <div class="band"></div>
+      <div class="fade-top"></div><div class="fade-bot"></div>
+    </div>
+    <div class="dot">.</div>
+    <div class="group">
+      <div class="wheel" id="d-dec"></div>
+      <div class="band"></div>
+      <div class="fade-top"></div><div class="fade-bot"></div>
+    </div>
+    <div class="unit">mcg/kg/min</div>
   </div>
-  <div class="dot">.</div>
-  <div class="group">
-    <div class="wheel" id="d-dec"></div>
-    <div class="band"></div>
-    <div class="fade-top"></div><div class="fade-bot"></div>
-  </div>
-  <div class="unit">mcg/kg/min</div>
+  <div class="lock-tag" id="d-lock">已達上限，小數鎖定為 0</div>
 </div>
-<div class="lock-tag" id="d-lock">已達上限，小數鎖定為 0</div>
 
 <script>
 // =========================
@@ -235,6 +241,11 @@ function buildAll(wInit, dInit) {
 window.addEventListener("message", (event) => {
   if (!event.data || event.data.type !== "streamlit:render") return;
   const args = event.data.args || {};
+  const mode = args.mode || "both";
+  if (document.body.dataset.mode !== mode) {
+    document.body.dataset.mode = mode;
+    setTimeout(() => setHeight(document.body.scrollHeight + 16), 30);
+  }
   const v = args.version;
   if (v !== currentVersion) {
     currentVersion = v;
