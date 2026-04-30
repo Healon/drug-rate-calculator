@@ -601,12 +601,12 @@ def step_result():
 
     if calc_dose > drug["dose_warn_high"]:
         st.error(
-            f"⚠ 計算劑量 {display_dose:.1f} {drug['dose_unit']} 超過建議最大 "
+            f"⚠ 計算劑量 {display_dose_str} {drug['dose_unit']} 超過建議最大 "
             f"{drug['dose_warn_high']:g}，請覆核流速與藥物參數是否正確。"
         )
     elif calc_dose < drug["dose_warn_low"]:
         st.warning(
-            f"目前計算劑量 {display_dose:.1f} {drug['dose_unit']} 低於建議起始 "
+            f"目前計算劑量 {display_dose_str} {drug['dose_unit']} 低於建議起始 "
             f"{drug['dose_warn_low']:g}，請確認醫囑。"
         )
 
