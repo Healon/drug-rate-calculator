@@ -123,8 +123,6 @@ DRUGS = {
     "pitressin_shock": {
         "key": "pitressin_shock",
         "display_name": "Pitressin｜休克使用",
-        "card_subtitle": "Vasopressin · 休克輔助升壓",
-        "card_detail": "0.01–0.04 U/min",
         "card_color": "teal",
         "needs_weight": False,
         "dose_unit": "U/min",
@@ -149,9 +147,7 @@ DRUGS = {
     },
     "pitressin_gi": {
         "key": "pitressin_gi",
-        "display_name": "Pitressin｜腸胃道出血／疑似靜脈曲張出血",
-        "card_subtitle": "Vasopressin · GI 出血 / variceal bleeding",
-        "card_detail": "0.2–0.4 U/min",
+        "display_name": "Pitressin｜腸胃道出血",
         "card_color": "rose",
         "needs_weight": False,
         "dose_unit": "U/min",
