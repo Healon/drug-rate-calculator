@@ -43,6 +43,23 @@ st.markdown(
         background: #102A1D !important;
         box-shadow: 0 0 0 2px rgba(34,197,94,0.35) !important;
       }
+      /* Pitressin 適應症對比配色 */
+      .drug-card-teal [data-testid="stButton"] button {
+        background: #0E2C24 !important;
+        border-color: #14B8A6 !important;
+      }
+      .drug-card-teal.selected [data-testid="stButton"] button {
+        background: #134E48 !important;
+        box-shadow: 0 0 0 2px rgba(20,184,166,0.55) !important;
+      }
+      .drug-card-rose [data-testid="stButton"] button {
+        background: #3B0F1F !important;
+        border-color: #E11D48 !important;
+      }
+      .drug-card-rose.selected [data-testid="stButton"] button {
+        background: #581832 !important;
+        box-shadow: 0 0 0 2px rgba(225,29,72,0.55) !important;
+      }
     </style>
     """,
     unsafe_allow_html=True,
@@ -89,8 +106,59 @@ DRUGS = {
             "message": "劑量超過 15 mcg/min，請考慮合併 vasopressin 使用。",
         },
     },
+    "pitressin_shock": {
+        "key": "pitressin_shock",
+        "display_name": "Pitressin｜休克使用",
+        "card_subtitle": "Vasopressin · 休克輔助升壓",
+        "card_detail": "0.01–0.04 U/min",
+        "card_color": "teal",
+        "needs_weight": False,
+        "dose_unit": "U/min",
+        "concentrations": [
+            {"label": "20 U / 20 ml NS", "mcg_per_ml": 1.0,
+             "note": "Pitressin 20 U 加入 NS 至 20 ml（1 U/ml）"},
+        ],
+        "dose_default": 0.03,
+        "dose_warn_low": 0.01,
+        "dose_warn_high": 0.04,
+        "rate_default": 1.8,  # 0.03 U/min → 1.8 ml/hr
+        "rate_max": 5.0,
+        "header_notice": {
+            "level": "warning",
+            "text": (
+                "Vasopressin 為休克輔助升壓藥，通常於 norepinephrine 後使用。\n"
+                "本頁僅限休克用途，劑量限制為 0.01–0.04 U/min。\n"
+                "請勿與腸胃道出血劑量混用。"
+            ),
+        },
+    },
+    "pitressin_gi": {
+        "key": "pitressin_gi",
+        "display_name": "Pitressin｜腸胃道出血／疑似靜脈曲張出血",
+        "card_subtitle": "Vasopressin · GI 出血 / variceal bleeding",
+        "card_detail": "0.2–0.4 U/min",
+        "card_color": "rose",
+        "needs_weight": False,
+        "dose_unit": "U/min",
+        "concentrations": [
+            {"label": "100 U / 100 ml NS", "mcg_per_ml": 1.0,
+             "note": "Pitressin 100 U 加入 NS 至 100 ml（1 U/ml）"},
+        ],
+        "dose_default": 0.2,
+        "dose_warn_low": 0.2,
+        "dose_warn_high": 0.4,
+        "rate_default": 12.0,  # 0.2 U/min → 12 ml/hr
+        "rate_max": 30.0,
+        "header_notice": {
+            "level": "error",
+            "text": (
+                "高警訊：腸胃道出血／靜脈曲張出血使用。\n"
+                "確認適應症，留意心肌、腸胃道、皮膚與周邊組織缺血徵候。"
+            ),
+        },
+    },
 }
-DRUG_ORDER = ["dopamine", "norepinephrine"]
+DRUG_ORDER = ["dopamine", "norepinephrine", "pitressin_shock", "pitressin_gi"]
 
 # =========================
 # Custom Components
@@ -121,10 +189,11 @@ def wheel_picker(weight_init: float, dose_init: float, version: int,
     )
 
 
-def rate_input(initial: float, version: int, key: str = "rate"):
+def rate_input(initial: float, version: int, max_value: float = 300.0, key: str = "rate"):
     return _rate_input(
         initial=float(initial),
         version=int(version),
+        max_value=float(max_value),
         default={"rate": float(initial)},
         key=key,
     )
@@ -307,23 +376,30 @@ def step1_drug_selection():
 
     st.subheader("選擇藥物")
 
-    cols = st.columns(len(DRUG_ORDER))
-    for col, drug_key in zip(cols, DRUG_ORDER):
+    # 垂直堆疊，每張卡片寬 100%，三行內容
+    for drug_key in DRUG_ORDER:
         drug = DRUGS[drug_key]
         is_selected = (ss.drug_key == drug_key)
-        with col:
-            st.markdown(
-                f"<div class='drug-card{' selected' if is_selected else ''}'>",
-                unsafe_allow_html=True,
-            )
-            st.button(
-                drug['display_name'],
-                on_click=select_drug,
-                args=(drug_key,),
-                use_container_width=True,
-                key=f"drug_{drug_key}",
-            )
-            st.markdown("</div>", unsafe_allow_html=True)
+        color_cls = f" drug-card-{drug.get('card_color')}" if drug.get("card_color") else ""
+        st.markdown(
+            f"<div class='drug-card{color_cls}{' selected' if is_selected else ''}'>",
+            unsafe_allow_html=True,
+        )
+        subtitle = drug.get("card_subtitle", "")
+        detail = drug.get("card_detail", "")
+        label_lines = [drug["display_name"]]
+        if subtitle:
+            label_lines.append(subtitle)
+        if detail:
+            label_lines.append(detail)
+        st.button(
+            "\n".join(label_lines),
+            on_click=select_drug,
+            args=(drug_key,),
+            use_container_width=True,
+            key=f"drug_{drug_key}",
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
 
     if ss.drug_key is None:
         st.info("請先點選一項藥物。")
@@ -347,9 +423,10 @@ def step1_drug_selection():
         )
 
     conc = current_concentration()
+    conc_unit = "U/ml" if drug["dose_unit"].startswith("U") else "mcg/ml"
     spec_lines = [
         f"**藥品規格：** {conc['label']}",
-        f"**濃度：** {conc['mcg_per_ml']} mcg/ml",
+        f"**濃度：** {conc['mcg_per_ml']:g} {conc_unit}",
         f"**建議劑量範圍：** 起始 {drug['dose_warn_low']:g}，最大 {drug['dose_warn_high']:g} {drug['dose_unit']}",
     ]
     if conc.get("note"):
@@ -413,17 +490,32 @@ def step_weight():
 # =========================
 # Step rate — 流速輸入
 # =========================
+def render_header_notice(drug):
+    notice = drug.get("header_notice")
+    if not notice:
+        return
+    fn = {"warning": st.warning, "error": st.error, "info": st.info}.get(
+        notice["level"], st.warning
+    )
+    fn(notice["text"])
+
+
 def step_rate():
     drug = current_drug()
     render_header()
     breadcrumb(step_keys().index("rate") + 1)
+    render_header_notice(drug)
 
     st.subheader("輸入幫浦流速")
-    st.caption("輸入 IV pump 顯示的流速 ml/hr，將反推目前劑量。")
+    st.caption(
+        f"輸入 IV pump 顯示的流速 ml/hr，將反推目前劑量"
+        f"（合理範圍 0–{drug.get('rate_max', 300):g} ml/hr）。"
+    )
 
     rv = rate_input(
         initial=ss.rate_init,
         version=ss.rate_version,
+        max_value=drug.get("rate_max", 300.0),
         key="rate_input_main",
     )
     if isinstance(rv, dict) and "rate" in rv:
@@ -458,17 +550,20 @@ def step_result():
     conc = current_concentration()
     render_header()
     breadcrumb(total_steps())
+    render_header_notice(drug)
 
     weight = ss.current_weight
     rate = ss.current_rate
     calc_dose = calculate_dose_from_rate(drug, weight, rate)
-    display_dose = round_half_up(calc_dose, 1)
+    dose_fmt = "{:.2f}" if drug["dose_warn_high"] < 1 else "{:.1f}"
+    display_dose_str = dose_fmt.format(round_half_up(calc_dose, 2 if drug["dose_warn_high"] < 1 else 1))
 
     weight_line = (
         f"<p style='font-size:18px;color:#D1D5DB;margin-top:8px;'>目前體重：{weight:.1f} kg</p>"
         if drug["needs_weight"] else
         f"<p style='font-size:14px;color:#9CA3AF;margin-top:8px;'>{drug['display_name']}（無需體重）</p>"
     )
+    conc_unit = "U/ml" if drug["dose_unit"].startswith("U") else "mcg/ml"
 
     st.markdown(
         f"""
@@ -483,7 +578,7 @@ def step_result():
                 目前實際劑量
             </p>
             <h1 style="font-size: 52px; color: #22C55E; margin: 0;">
-                {display_dose:.1f}
+                {display_dose_str}
                 <span style="font-size: 26px;">{drug['dose_unit']}</span>
             </h1>
             <p style="font-size: 22px; color: #FFFFFF; margin-top: 12px; margin-bottom: 0;">
@@ -491,21 +586,21 @@ def step_result():
             </p>
             {weight_line}
             <p style='font-size:13px;color:#9CA3AF;margin-top:8px;'>
-                濃度：{conc['mcg_per_ml']} mcg/ml ｜ {conc['label']}
+                濃度：{conc['mcg_per_ml']:g} {conc_unit} ｜ {conc['label']}
             </p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    st.caption(f"原始精確計算值：{calc_dose:.2f} {drug['dose_unit']}")
+    st.caption(f"原始精確計算值：{calc_dose:.3f} {drug['dose_unit']}")
     if drug["needs_weight"]:
         st.caption(
-            f"計算式：{rate:.1f} × {conc['mcg_per_ml']} ÷ ({weight:.1f} × 60) = {calc_dose:.2f} {drug['dose_unit']}"
+            f"計算式：{rate:.1f} × {conc['mcg_per_ml']:g} ÷ ({weight:.1f} × 60) = {calc_dose:.3f} {drug['dose_unit']}"
         )
     else:
         st.caption(
-            f"計算式：{rate:.1f} × {conc['mcg_per_ml']} ÷ 60 = {calc_dose:.2f} {drug['dose_unit']}"
+            f"計算式：{rate:.1f} × {conc['mcg_per_ml']:g} ÷ 60 = {calc_dose:.3f} {drug['dose_unit']}"
         )
 
     if calc_dose > drug["dose_warn_high"]:
@@ -539,7 +634,7 @@ def step_result():
             st.button(label, use_container_width=True, on_click=fn, key=f"sresult_{k}")
 
     st.caption("資料版本：急重症藥物泡製流速表 1110701")
-    st.caption("目前版本：MVP v0.6-rate｜反向計算 / Dopamine + Norepinephrine")
+    st.caption("目前版本：MVP v0.7-rate｜反向計算 / Dopamine + Norepinephrine + Pitressin（休克 / GI）")
 
 
 # =========================

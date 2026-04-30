@@ -90,7 +90,9 @@ function setReady()      { sendToStreamlit("streamlit:componentReady", { apiVers
 function setHeight(h)    { sendToStreamlit("streamlit:setFrameHeight", { height: h }); }
 function setValue(v)     { sendToStreamlit("streamlit:setComponentValue", { value: v, dataType: "json" }); }
 
-const MIN = 0.0, MAX = 300.0, STEP = 0.1;
+const MIN = 0.0;
+let MAX = 300.0;
+const STEP = 0.1;
 const input = document.getElementById('value');
 const inc = document.getElementById('inc');
 const dec = document.getElementById('dec');
@@ -147,6 +149,10 @@ window.addEventListener("message", (event) => {
   const v = args.version;
   if (v !== currentVersion) {
     currentVersion = v;
+    if (typeof args.max_value === "number") {
+      MAX = args.max_value;
+      input.setAttribute('max', String(MAX));
+    }
     const init = (typeof args.initial === "number") ? args.initial : 0.0;
     input.value = format1(round1(clamp(init)));
     lastSent = parseFloat(input.value);
