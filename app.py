@@ -84,6 +84,10 @@ DRUGS = {
         "dose_warn_high": 30.0,
         "rate_default": 7.5,  # NE 低濃度 2 mcg/min
         "rate_max": 200.0,
+        "secondary_warning": {
+            "threshold": 15.0,
+            "message": "劑量超過 15 mcg/min，請考慮合併 vasopressin 使用。",
+        },
     },
 }
 DRUG_ORDER = ["dopamine", "norepinephrine"]
@@ -514,6 +518,10 @@ def step_result():
             f"目前計算劑量 {display_dose:.1f} {drug['dose_unit']} 低於建議起始 "
             f"{drug['dose_warn_low']:g}，請確認醫囑。"
         )
+
+    sw = drug.get("secondary_warning")
+    if sw and calc_dose > sw["threshold"]:
+        st.warning(sw["message"])
 
     st.error("高警訊藥物提醒：給藥前請完成雙人覆核流程。")
 
