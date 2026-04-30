@@ -372,30 +372,34 @@ def step1_drug_selection():
 
     st.subheader("選擇藥物")
 
-    # 垂直堆疊，每張卡片寬 100%，三行內容
-    for drug_key in DRUG_ORDER:
-        drug = DRUGS[drug_key]
-        is_selected = (ss.drug_key == drug_key)
-        color_cls = f" drug-card-{drug.get('card_color')}" if drug.get("card_color") else ""
-        st.markdown(
-            f"<div class='drug-card{color_cls}{' selected' if is_selected else ''}'>",
-            unsafe_allow_html=True,
-        )
-        subtitle = drug.get("card_subtitle", "")
-        detail = drug.get("card_detail", "")
-        label_lines = [drug["display_name"]]
-        if subtitle:
-            label_lines.append(subtitle)
-        if detail:
-            label_lines.append(detail)
-        st.button(
-            "\n".join(label_lines),
-            on_click=select_drug,
-            args=(drug_key,),
-            use_container_width=True,
-            key=f"drug_{drug_key}",
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
+    # 2 × 2 網格
+    for i in range(0, len(DRUG_ORDER), 2):
+        row_keys = DRUG_ORDER[i:i + 2]
+        cols = st.columns(2)
+        for col, drug_key in zip(cols, row_keys):
+            drug = DRUGS[drug_key]
+            is_selected = (ss.drug_key == drug_key)
+            color_cls = f" drug-card-{drug.get('card_color')}" if drug.get("card_color") else ""
+            with col:
+                st.markdown(
+                    f"<div class='drug-card{color_cls}{' selected' if is_selected else ''}'>",
+                    unsafe_allow_html=True,
+                )
+                subtitle = drug.get("card_subtitle", "")
+                detail = drug.get("card_detail", "")
+                label_lines = [drug["display_name"]]
+                if subtitle:
+                    label_lines.append(subtitle)
+                if detail:
+                    label_lines.append(detail)
+                st.button(
+                    "\n".join(label_lines),
+                    on_click=select_drug,
+                    args=(drug_key,),
+                    use_container_width=True,
+                    key=f"drug_{drug_key}",
+                )
+                st.markdown("</div>", unsafe_allow_html=True)
 
     if ss.drug_key is None:
         st.info("請先點選一項藥物。")
