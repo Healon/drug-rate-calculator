@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 import streamlit as st
 import streamlit.components.v1 as components
 from decimal import Decimal, ROUND_HALF_UP
@@ -169,8 +170,33 @@ DRUGS = {
             ),
         },
     },
+    "epinephrine_shock": {
+        "key": "epinephrine_shock",
+        "display_name": "Epinephrine｜休克使用",
+        "needs_weight": True,
+        "dose_unit": "mcg/kg/min",
+        "concentrations": [
+            {"label": "2 mg / 20 ml D/W", "mcg_per_ml": 100,
+             "note": "Epinephrine 2 mg 加入 D/W 至 20 ml（0.1 mg/ml = 100 mcg/ml）"},
+        ],
+        "dose_default": 0.05,
+        "dose_warn_low": 0.05,
+        "dose_warn_high": 2.00,
+        "dose_decimals": 2,
+        "quick_doses": [0.05, 0.10, 0.20, 0.30, 0.50, 1.00],
+        "input_mode": "decimal_picker",
+        "rate_max": 200.0,
+        "header_notice": {
+            "level": "warning",
+            "text": "Norepinephrine + Vasopressin 後 MAP 仍不足，可依醫囑加用 Epinephrine。",
+        },
+        "monitoring_notice": (
+            "請監測心搏過速、心律不整、心肌缺血、高血壓、外滲組織壞死、尿量下降與 lactate 變化。\n"
+            "Epinephrine 可能使 lactate 上升，判讀 lactate 時需合併臨床灌流狀態。"
+        ),
+    },
 }
-DRUG_ORDER = ["dopamine", "norepinephrine", "pitressin_shock", "pitressin_gi"]
+DRUG_ORDER = ["dopamine", "norepinephrine", "pitressin_shock", "pitressin_gi", "epinephrine_shock"]
 
 # =========================
 # Custom Component (雙向 wheel picker)
@@ -184,7 +210,9 @@ _wheel_picker = components.declare_component(
 
 def wheel_picker(weight_init: float, dose_init: float, version: int,
                  mode: str = "both", w_min: int = 10, w_max: int = 200,
-                 d_min: int = 0, d_max: int = 50, key: str = "wheel"):
+                 d_min: int = 0, d_max: int = 50, d_decimals: int = 1,
+                 d_min_real: Optional[float] = None, d_max_real: Optional[float] = None,
+                 key: str = "wheel"):
     return _wheel_picker(
         weight_init=float(weight_init),
         dose_init=float(dose_init),
@@ -192,6 +220,9 @@ def wheel_picker(weight_init: float, dose_init: float, version: int,
         mode=mode,
         w_min=int(w_min), w_max=int(w_max),
         d_min=int(d_min), d_max=int(d_max),
+        d_decimals=int(d_decimals),
+        d_min_real=float(d_min_real if d_min_real is not None else d_min),
+        d_max_real=float(d_max_real if d_max_real is not None else d_max),
         default={"weight": float(weight_init), "dose": float(dose_init), "v": int(version)},
         key=key,
     )
@@ -315,7 +346,12 @@ def sync_picker(picker_value):
         if "weight" in picker_value:
             ss.current_weight = round_half_up(float(picker_value["weight"]), 1)
         if "dose" in picker_value:
-            ss.current_dose = round_half_up(float(picker_value["dose"]), 1)
+            drug = current_drug()
+            decimals = 1
+            if drug:
+                decimals = drug.get("dose_decimals",
+                                    2 if drug["dose_warn_high"] < 1 else 1)
+            ss.current_dose = round_half_up(float(picker_value["dose"]), decimals)
 
 
 # =========================
@@ -545,6 +581,41 @@ def step_dose():
             unsafe_allow_html=True,
         )
         render_dose_buttons(drug)
+    elif drug.get("input_mode") == "decimal_picker":
+        st.caption(
+            f"三輪滾輪：整數 + 小數第 1 位 + 小數第 2 位。建議劑量範圍 "
+            f"{drug['dose_warn_low']:.2f}–{drug['dose_warn_high']:.2f} {drug['dose_unit']}，step 0.01。"
+        )
+        picker_value = wheel_picker(
+            weight_init=ss.weight_init,
+            dose_init=ss.dose_init,
+            version=ss.wheel_version,
+            mode="dose_only",
+            d_min=int(drug["dose_warn_low"]),
+            d_max=int(drug["dose_warn_high"]),
+            d_decimals=2,
+            d_min_real=float(drug["dose_warn_low"]),
+            d_max_real=float(drug["dose_warn_high"]),
+            key="picker_dose",
+        )
+        sync_picker(picker_value)
+
+        st.markdown(
+            f"##### 快速劑量 <span style='font-size:12px;color:#9CA3AF;font-weight:400;'>{drug['dose_unit']}</span>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("<div class='quick-dose'>", unsafe_allow_html=True)
+        quick_cols = st.columns(len(drug["quick_doses"]))
+        for col, dose_value in zip(quick_cols, drug["quick_doses"]):
+            with col:
+                st.button(
+                    f"{dose_value:.2f}",
+                    on_click=set_quick_dose,
+                    args=(dose_value,),
+                    use_container_width=True,
+                    key=f"qd_{dose_value}",
+                )
+        st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.caption(
             f"整數滾輪以 1 為單位、小數滾輪每格 0.1。建議劑量範圍 "
@@ -577,7 +648,8 @@ def step_dose():
                 )
         st.markdown("</div>", unsafe_allow_html=True)
 
-    dose_fmt = "{:.2f}" if drug["dose_warn_high"] < 1 else "{:.1f}"
+    dose_decimals = drug.get("dose_decimals", 2 if drug["dose_warn_high"] < 1 else 1)
+    dose_fmt = f"{{:.{dose_decimals}f}}"
     st.markdown(
         f"<div style='text-align:center;font-size:18px;color:#D1D5DB;margin:8px 0 4px;'>"
         f"目前劑量：<b style='font-size:26px;color:#FFFFFF;'>"
@@ -625,7 +697,8 @@ def step_result():
     )
 
     conc_unit = "U/ml" if drug["dose_unit"].startswith("U") else "mcg/ml"
-    dose_fmt = "{:.2f}" if drug["dose_warn_high"] < 1 else "{:.1f}"
+    dose_decimals = drug.get("dose_decimals", 2 if drug["dose_warn_high"] < 1 else 1)
+    dose_fmt = f"{{:.{dose_decimals}f}}"
 
     st.markdown(
         f"""
@@ -671,6 +744,9 @@ def step_result():
 
     st.error("高警訊藥物提醒：給藥前請完成雙人覆核流程。")
 
+    if drug.get("monitoring_notice"):
+        st.warning(drug["monitoring_notice"])
+
     st.divider()
 
     btns = []
@@ -685,7 +761,7 @@ def step_result():
             st.button(label, use_container_width=True, on_click=fn, key=f"sr_{k}")
 
     st.caption("資料版本：急重症藥物泡製流速表 1110701")
-    st.caption("目前版本：MVP v0.7｜支援 Dopamine、Norepinephrine、Pitressin（休克 / GI 出血）")
+    st.caption("目前版本：MVP v0.8｜支援 Dopamine、Norepinephrine、Epinephrine、Pitressin（休克 / GI 出血）")
 
 
 # =========================

@@ -71,6 +71,7 @@
   .lock-tag.show { display: block; }
   body[data-mode="weight_only"] .dose-block { display: none; }
   body[data-mode="dose_only"]   .weight-block { display: none; }
+  body:not([data-decimals="2"]) .dec2-only { display: none; }
 </style>
 </head>
 <body>
@@ -108,9 +109,15 @@
       <div class="band"></div>
       <div class="fade-top"></div><div class="fade-bot"></div>
     </div>
+    <div class="group dec2-only">
+      <div class="wheel" id="d-dec2"></div>
+      <div class="band"></div>
+      <div class="fade-top"></div><div class="fade-bot"></div>
+    </div>
     <div class="unit">mcg/kg/min</div>
   </div>
   <div class="lock-tag" id="d-lock">已達上限，小數鎖定為 0</div>
+  <div class="lock-tag dec2-only" id="d-min-lock">已達下限</div>
 </div>
 
 <script>
@@ -131,8 +138,11 @@ function setValue(value)   { sendToStreamlit("streamlit:setComponentValue", { va
 const ITEM_H = 36;
 let W_MIN = 10, W_MAX = 200;
 let D_MIN = 0,  D_MAX = 50;
+let D_DECIMALS = 1;
+let D_MIN_REAL = 0;
+let D_MAX_REAL = Infinity;
 
-const state = { w_int: 60, w_dec: 0, d_int: 5, d_dec: 0 };
+const state = { w_int: 60, w_dec: 0, d_int: 5, d_dec: 0, d_dec2: 0 };
 let currentVersion = null;
 let built = false;
 
@@ -187,8 +197,10 @@ function attachScroll(el, onChange) {
 function applyLock() {
   const wDec = document.getElementById('w-dec');
   const dDec = document.getElementById('d-dec');
+  const dDec2 = document.getElementById('d-dec2');
   const wTag = document.getElementById('w-lock');
   const dTag = document.getElementById('d-lock');
+  const dMinTag = document.getElementById('d-min-lock');
 
   if (state.w_int >= W_MAX) {
     state.w_dec = 0;
@@ -200,14 +212,49 @@ function applyLock() {
     state.d_dec = 0;
     dDec.scrollTop = 0; paint(dDec);
     dDec.classList.add('locked'); dTag.classList.add('show');
-  } else { dDec.classList.remove('locked'); dTag.classList.remove('show'); }
+    if (D_DECIMALS === 2) {
+      state.d_dec2 = 0;
+      dDec2.scrollTop = 0; paint(dDec2);
+      dDec2.classList.add('locked');
+    }
+  } else {
+    dDec.classList.remove('locked'); dTag.classList.remove('show');
+    if (D_DECIMALS === 2) dDec2.classList.remove('locked');
+  }
+
+  if (D_DECIMALS === 2 && dMinTag) {
+    const dose = state.d_int + state.d_dec / 10 + state.d_dec2 / 100;
+    if (dose < D_MIN_REAL - 1e-9) {
+      const minDec2 = Math.round(D_MIN_REAL * 100) % 10;
+      const minDec1 = Math.floor((D_MIN_REAL * 10)) % 10;
+      const minInt = Math.floor(D_MIN_REAL);
+      if (state.d_int <= minInt && state.d_dec <= minDec1) {
+        state.d_int = minInt;
+        state.d_dec = minDec1;
+        state.d_dec2 = minDec2;
+        document.getElementById('d-int').scrollTop = (minInt - D_MIN) * ITEM_H;
+        dDec.scrollTop = minDec1 * ITEM_H;
+        dDec2.scrollTop = minDec2 * ITEM_H;
+        paint(document.getElementById('d-int')); paint(dDec); paint(dDec2);
+        dMinTag.classList.add('show');
+      }
+    } else {
+      dMinTag.classList.remove('show');
+    }
+  }
 }
 
 function emit() {
   applyLock();
+  let dose;
+  if (D_DECIMALS === 2) {
+    dose = Math.round((state.d_int + state.d_dec / 10 + state.d_dec2 / 100) * 100) / 100;
+  } else {
+    dose = Math.round((state.d_int + state.d_dec / 10) * 10) / 10;
+  }
   const value = {
     weight: Math.round((state.w_int + state.w_dec / 10) * 10) / 10,
-    dose:   Math.round((state.d_int + state.d_dec / 10) * 10) / 10,
+    dose: dose,
     v: currentVersion
   };
   setValue(value);
@@ -217,18 +264,28 @@ function buildAll(wInit, dInit) {
   state.w_int = Math.floor(wInit);
   state.w_dec = Math.round((wInit - state.w_int) * 10);
   state.d_int = Math.floor(dInit);
-  state.d_dec = Math.round((dInit - state.d_int) * 10);
+  if (D_DECIMALS === 2) {
+    const rem = dInit - state.d_int;
+    state.d_dec = Math.floor(rem * 10 + 1e-9);
+    state.d_dec2 = Math.round((rem - state.d_dec / 10) * 100);
+    if (state.d_dec2 >= 10) { state.d_dec += 1; state.d_dec2 -= 10; }
+  } else {
+    state.d_dec = Math.round((dInit - state.d_int) * 10);
+    state.d_dec2 = 0;
+  }
 
   const wInt = buildWheel('w-int', W_MIN, W_MAX, state.w_int);
   const wDec = buildWheel('w-dec', 0, 9, state.w_dec);
   const dInt = buildWheel('d-int', D_MIN, D_MAX, state.d_int);
   const dDec = buildWheel('d-dec', 0, 9, state.d_dec);
+  const dDec2 = buildWheel('d-dec2', 0, 9, state.d_dec2);
 
   if (!built) {
     attachScroll(wInt, v => { state.w_int = v; emit(); });
     attachScroll(wDec, v => { state.w_dec = v; emit(); });
     attachScroll(dInt, v => { state.d_int = v; emit(); });
     attachScroll(dDec, v => { state.d_dec = v; emit(); });
+    attachScroll(dDec2, v => { state.d_dec2 = v; emit(); });
     built = true;
   }
 
@@ -246,6 +303,11 @@ window.addEventListener("message", (event) => {
     document.body.dataset.mode = mode;
     setTimeout(() => setHeight(document.body.scrollHeight + 16), 30);
   }
+  const decimals = (args.d_decimals === 2) ? 2 : 1;
+  if (document.body.dataset.decimals !== String(decimals)) {
+    document.body.dataset.decimals = String(decimals);
+    setTimeout(() => setHeight(document.body.scrollHeight + 16), 30);
+  }
   const v = args.version;
   if (v !== currentVersion) {
     currentVersion = v;
@@ -253,11 +315,15 @@ window.addEventListener("message", (event) => {
     if (typeof args.w_max === "number") W_MAX = args.w_max;
     if (typeof args.d_min === "number") D_MIN = args.d_min;
     if (typeof args.d_max === "number") D_MAX = args.d_max;
+    D_DECIMALS = decimals;
+    D_MIN_REAL = (typeof args.d_min_real === "number") ? args.d_min_real : D_MIN;
+    D_MAX_REAL = (typeof args.d_max_real === "number") ? args.d_max_real : D_MAX;
     const wInit = (typeof args.weight_init === "number") ? args.weight_init : 60.0;
     const dInit = (typeof args.dose_init   === "number") ? args.dose_init   : 5.0;
     built = false;  // 範圍可能改變，強制重新 attach scroll
     document.getElementById('w-int').innerHTML = '';
     document.getElementById('d-int').innerHTML = '';
+    document.getElementById('d-dec2').innerHTML = '';
     buildAll(wInit, dInit);
   }
 });
