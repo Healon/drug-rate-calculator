@@ -153,8 +153,32 @@ DRUGS = {
             ),
         },
     },
+    "epinephrine_shock": {
+        "key": "epinephrine_shock",
+        "display_name": "Epinephrine｜休克使用",
+        "needs_weight": True,
+        "dose_unit": "mcg/kg/min",
+        "concentrations": [
+            {"label": "2 mg / 20 ml D/W", "mcg_per_ml": 100,
+             "note": "Epinephrine 2 mg 加入 D/W 至 20 ml（0.1 mg/ml = 100 mcg/ml）"},
+        ],
+        "dose_default": 0.05,
+        "dose_warn_low": 0.05,
+        "dose_warn_high": 2.00,
+        "dose_decimals": 2,
+        "rate_default": 1.8,  # 60 kg × 0.05 mcg/kg/min → 1.8 ml/hr
+        "rate_max": 200.0,
+        "header_notice": {
+            "level": "warning",
+            "text": "Norepinephrine + Vasopressin 後 MAP 仍不足，可依醫囑加用 Epinephrine。",
+        },
+        "monitoring_notice": (
+            "請監測心搏過速、心律不整、心肌缺血、高血壓、外滲組織壞死、尿量下降與 lactate 變化。\n"
+            "Epinephrine 可能使 lactate 上升，判讀 lactate 時需合併臨床灌流狀態。"
+        ),
+    },
 }
-DRUG_ORDER = ["dopamine", "norepinephrine", "pitressin_shock", "pitressin_gi"]
+DRUG_ORDER = ["dopamine", "norepinephrine", "pitressin_shock", "pitressin_gi", "epinephrine_shock"]
 
 # =========================
 # Custom Components
@@ -555,8 +579,9 @@ def step_result():
     weight = ss.current_weight
     rate = ss.current_rate
     calc_dose = calculate_dose_from_rate(drug, weight, rate)
-    dose_fmt = "{:.2f}" if drug["dose_warn_high"] < 1 else "{:.1f}"
-    display_dose_str = dose_fmt.format(round_half_up(calc_dose, 2 if drug["dose_warn_high"] < 1 else 1))
+    dose_decimals = drug.get("dose_decimals", 2 if drug["dose_warn_high"] < 1 else 1)
+    dose_fmt = f"{{:.{dose_decimals}f}}"
+    display_dose_str = dose_fmt.format(round_half_up(calc_dose, dose_decimals))
 
     weight_line = (
         f"<p style='font-size:18px;color:#D1D5DB;margin-top:8px;'>目前體重：{weight:.1f} kg</p>"
@@ -620,6 +645,9 @@ def step_result():
 
     st.error("高警訊藥物提醒：給藥前請完成雙人覆核流程。")
 
+    if drug.get("monitoring_notice"):
+        st.warning(drug["monitoring_notice"])
+
     st.divider()
 
     btns = []
@@ -634,7 +662,7 @@ def step_result():
             st.button(label, use_container_width=True, on_click=fn, key=f"sresult_{k}")
 
     st.caption("資料版本：急重症藥物泡製流速表 1110701")
-    st.caption("目前版本：MVP v0.7-rate｜反向計算 / Dopamine + Norepinephrine + Pitressin（休克 / GI）")
+    st.caption("目前版本：MVP v0.8-rate｜反向計算 / Dopamine + Norepinephrine + Epinephrine + Pitressin（休克 / GI）")
 
 
 # =========================
